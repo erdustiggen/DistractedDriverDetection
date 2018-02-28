@@ -2,6 +2,7 @@ import cv2
 import dlib
 import numpy as np
 import time
+import math
 from collections import OrderedDict
 
 PREDICTOR_PATH = "C:\\Users\\ebras\\MasterOpenCV\\face-alignment\\shape_predictor_68_face_landmarks.dat"
@@ -57,7 +58,7 @@ def get_imagepoints(landmarks):
                             (landmark_matrix[54,0], landmark_matrix[54,1]),     # Left Mouth corner
                             (landmark_matrix[48,0], landmark_matrix[48,1])      # Right mouth corner
                         ], dtype="double")
-    return image_points
+    return image_points, (landmark_matrix[30,0], landmark_matrix[30,1])
 
 def get_modelpoints():
     model_points = np.array([
@@ -70,6 +71,9 @@ def get_modelpoints():
                          
                         ])
     return model_points
+
+# This function might need change, better to use: focal_length = center[0] / np.tan(60/2 * np.pi / 180) ???
+# focal_length = center[0] / np.tan(60/2 * np.pi / 180) is maybe essential
 
 def get_camera_matrix():
     focal_length = size[1]
@@ -99,7 +103,7 @@ while(cap.isOpened()):
     rects = detector(frame, 1)
     landmark_matrix = get_landmarks(frame)
     
-    image_points = get_imagepoints(frame)
+    image_points, nose = get_imagepoints(frame)
     
     model_points = get_modelpoints()
     
@@ -110,14 +114,38 @@ while(cap.isOpened()):
     
     dist_coeffs = np.zeros((4,1)) # Assuming no lens distortion
     (success, rotation_vector, translation_vector) = cv2.solvePnP(model_points, image_points, camera_matrix, dist_coeffs, flags=cv2.CV_ITERATIVE)
-    (nose_end_point2D, jacobian) = cv2.projectPoints(np.array([(0.0, 0.0, 1000.0)]), rotation_vector, translation_vector, camera_matrix, dist_coeffs)
-    for p in image_points:
-        cv2.circle(frame, (int(p[0]), int(p[1])), 3, (0,0,255), -1) 
-    p1 = ( int(image_points[0][0]), int(image_points[0][1]))
-    p2 = ( int(nose_end_point2D[0][0][0]), int(nose_end_point2D[0][0][1]))
- 
-    cv2.line(frame, p1, p2, (255,0,0), 2)
     
+    axis = np.float32([[500,0,0], 
+                          [0,500,0], 
+                          [0,0,500]])
+
+    imgpts, jac = cv2.projectPoints(axis, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
+    modelpts, jac2 = cv2.projectPoints(model_points, rotation_vector, translation_vector, camera_matrix, dist_coeffs)
+    rvec_matrix = cv2.Rodrigues(rotation_vector)[0]
+
+    proj_matrix = np.hstack((rvec_matrix, translation_vector))
+    eulerAngles = cv2.decomposeProjectionMatrix(proj_matrix)[6] 
+
+    
+    pitch, yaw, roll = [math.radians(_) for _ in eulerAngles]
+
+    pitch = math.degrees(math.asin(math.sin(pitch)))
+    roll = -math.degrees(math.asin(math.sin(roll)))
+    yaw = math.degrees(math.asin(math.sin(yaw)))
+    
+    rotate_degree = (str(int(roll)), str(int(pitch)), str(int(yaw)))
+
+
+    cv2.line(frame, nose, tuple(imgpts[1].ravel()), (0,255,0), 3) #GREEN
+    cv2.line(frame, nose, tuple(imgpts[0].ravel()), (255,0,), 3) #BLUE
+    cv2.line(frame, nose, tuple(imgpts[2].ravel()), (0,0,255), 3) #RED
+    
+    #cv2.putText(frame, rotate_degree[0]+' '+rotate_degree[1]+' '+rotate_degree[2], (10, 20),
+    cv2.putText(frame, rotate_degree[2], (5, 30),
+    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0),
+    thickness=1, lineType=1)           
+
+
     cv2.imshow('frame',frame)
     
     if cv2.waitKey(5) & 0xFF == ord('q'):
