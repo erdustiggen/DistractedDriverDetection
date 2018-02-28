@@ -5,22 +5,9 @@ import time
 import math
 from collections import OrderedDict
 
-PREDICTOR_PATH = "C:\\Users\\ebras\\MasterOpenCV\\face-alignment\\shape_predictor_68_face_landmarks.dat"
+PREDICTOR_PATH = "Path to predictor"
 predictor = dlib.shape_predictor(PREDICTOR_PATH)
 detector = dlib.get_frontal_face_detector()
-
-
-FACIAL_LANDMARKS_IDXS = OrderedDict([
-    ("mouth", (48, 68)),
-    ("right_eyebrow", (17, 22)),
-    ("left_eyebrow", (22, 27)),
-    ("right_eye", (36, 42)),
-    ("left_eye", (42, 48)),
-    ("nose", (27, 35)),
-    ("jaw", (0, 17))
-])
-
-
 
 class TooManyFaces(Exception):
     pass
@@ -28,28 +15,21 @@ class TooManyFaces(Exception):
 class NoFaces(Exception):
     pass
 
-def get_landmarks(im):
-    rects = detector(im, 1)
+def get_angles(frame):
+    # Getting heigth and width of video frame, putting them in array size.
+    width = cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)
+    height = cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)
+    size = (int(height), int (width))
 
+    # Identifying landmarks on face, putting them in landmark_matrix
+    rects = detector(frame, 1)
     if len(rects) > 1:
         return "error"
     if len(rects) == 0:
         return "error"
-    return np.matrix([[p.x, p.y] for p in predictor(im, rects[0]).parts()])
+    landmark_matrix = np.matrix([[p.x, p.y] for p in predictor(frame, rects[0]).parts()])
 
-
-def annotate_landmarks(im, landmarks):
-    im = im.copy()
-    for idx, point in enumerate(landmarks):
-        pos = (point[0, 0], point[0, 1])
-        cv2.putText(im, str(idx), pos,
-                    fontFace=cv2.FONT_HERSHEY_SCRIPT_SIMPLEX,
-                    fontScale=0.1,
-                    color=(0, 0, 255))
-        cv2.circle(im, pos, 1, color=(0, 255, 255))
-    return im
-
-def get_imagepoints(landmarks):
+    # Filling an array with the important landmarks used for calculating yaw, pitch and roll. 
     image_points = np.array([
                             (landmark_matrix[30,0], landmark_matrix[30,1]),     # Nose tip
                             (landmark_matrix[8,0], landmark_matrix[8,1] ),     # Chin
@@ -58,9 +38,8 @@ def get_imagepoints(landmarks):
                             (landmark_matrix[54,0], landmark_matrix[54,1]),     # Left Mouth corner
                             (landmark_matrix[48,0], landmark_matrix[48,1])      # Right mouth corner
                         ], dtype="double")
-    return image_points, (landmark_matrix[30,0], landmark_matrix[30,1])
-
-def get_modelpoints():
+    nose = (landmark_matrix[30,0], landmark_matrix[30,1])    
+        
     model_points = np.array([
                             (0.0, 0.0, 0.0),             # Nose tip
                             (0.0, -330.0, -65.0),        # Chin
@@ -70,12 +49,9 @@ def get_modelpoints():
                             (150.0, -150.0, -125.0)      # Right mouth corner
                          
                         ])
-    return model_points
 
-# This function might need change, better to use: focal_length = center[0] / np.tan(60/2 * np.pi / 180) ???
-# focal_length = center[0] / np.tan(60/2 * np.pi / 180) is maybe essential
-
-def get_camera_matrix():
+    # This Part might need change, better to use: focal_length = center[0] / np.tan(60/2 * np.pi / 180) ???
+    # focal_length = center[0] / np.tan(60/2 * np.pi / 180) is maybe essential
     focal_length = size[1]
     center = (size[1]/2, size[0]/2)
     camera_matrix = np.array(
@@ -83,35 +59,7 @@ def get_camera_matrix():
                          [0, focal_length, center[1]],
                          [0, 0, 1]], dtype = "double"
                          )
-    return camera_matrix
 
-cap = cv2.VideoCapture('C:\\Users\\ebras\\MasterOpenCV\\lele.mp4')
-width = cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)
-height = cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT) 
-
-# Not sure if heigth or weigth should be first
-size = (int(height), int (width))
-
-# Not sure what this does, and if frame is a correct parameter. This probaly have to run in the while loop
-# before calculations.
-
-
-
-while(cap.isOpened()):
-    ret, frame = cap.read()
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    rects = detector(frame, 1)
-    landmark_matrix = get_landmarks(frame)
-    
-    image_points, nose = get_imagepoints(frame)
-    
-    model_points = get_modelpoints()
-    
-    camera_matrix = get_camera_matrix()
-        
-    
-    #image_with_landmarks = annotate_landmarks(frame, landmark_matrix)
-    
     dist_coeffs = np.zeros((4,1)) # Assuming no lens distortion
     (success, rotation_vector, translation_vector) = cv2.solvePnP(model_points, image_points, camera_matrix, dist_coeffs, flags=cv2.CV_ITERATIVE)
     
@@ -133,14 +81,23 @@ while(cap.isOpened()):
     roll = -math.degrees(math.asin(math.sin(roll)))
     yaw = math.degrees(math.asin(math.sin(yaw)))
     
-    rotate_degree = (str(int(roll)), str(int(pitch)), str(int(yaw)))
 
+    return imgpts, modelpts, (str(int(roll)), str(int(pitch)), str(int(yaw))), nose, yaw
+
+cap = cv2.VideoCapture('Path to video')
+
+
+while(cap.isOpened()):
+    ret, frame = cap.read()
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+
+    imgpts, modelpts, rotate_degree, nose, jaw = get_angles(frame)
 
     cv2.line(frame, nose, tuple(imgpts[1].ravel()), (0,255,0), 3) #GREEN
     cv2.line(frame, nose, tuple(imgpts[0].ravel()), (255,0,), 3) #BLUE
     cv2.line(frame, nose, tuple(imgpts[2].ravel()), (0,0,255), 3) #RED
     
-    #cv2.putText(frame, rotate_degree[0]+' '+rotate_degree[1]+' '+rotate_degree[2], (10, 20),
     cv2.putText(frame, rotate_degree[2], (5, 30),
     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0),
     thickness=1, lineType=1)           
